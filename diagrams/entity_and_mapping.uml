@@ -1,0 +1,71 @@
+@startuml UML_Clases_Persistencia
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam classAttributeIconSize 0
+
+package "Persistencia (PostgreSQL)" {
+    class User <<Entity>> {
+        +id: UUID [PK]
+        +username: String
+        +email: String
+        +password_hash: String
+        +created_at: DateTime
+    }
+
+    class Wallet <<Entity>> {
+        +id: UUID [PK]
+        +user_id: UUID [FK]
+        +balance: Decimal
+    }
+
+    class Room <<Entity>> {
+        +id: UUID [PK]
+        +pin_code: String
+        +host_id: UUID [FK]
+        +status: RoomStatus
+        +max_players: int
+    }
+
+    class GameSession <<Entity>> {
+        +id: UUID [PK]
+        +room_id: UUID [FK]
+        +modality: GameMode
+        +started_at: DateTime
+        +ended_at: DateTime
+    }
+
+    class PlayerSession <<Entity>> {
+        +id: UUID [PK]
+        +session_id: UUID [FK]
+        +user_id: UUID [FK]
+        +accumulated_score: int
+        +is_connected: boolean
+    }
+
+    class Round <<Entity>> {
+        +id: UUID [PK]
+        +session_id: UUID [FK]
+        +round_number: int
+        +winner_id: UUID [FK]
+        +status: RoundStatus
+    }
+
+    class Play <<Entity>> {
+        +id: UUID [PK]
+        +round_id: UUID [FK]
+        +player_id: UUID [FK]
+        +action_type: String
+        +card_played: String
+        +timestamp: DateTime
+    }
+}
+
+User "1" *-- "1" Wallet
+User "1" -- "0..*" Room : Host
+Room "1" *-- "1..*" GameSession
+User "1" -- "0..*" PlayerSession
+GameSession "1" *-- "1..*" PlayerSession
+GameSession "1" *-- "1..*" Round
+Round "1" *-- "0..*" Play
+PlayerSession "1" -- "0..*" Play : ejecuta
+@enduml
