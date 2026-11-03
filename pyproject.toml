@@ -1,0 +1,22 @@
+[project]
+name = "apuntado-digital"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "websockets",
+    "redis",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "pydantic"
+]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.mccabe]
+max-complexity = 10

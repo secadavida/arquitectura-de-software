@@ -1,0 +1,23 @@
+[importlinter]
+root_package = app
+
+[importlinter:contract:1]
+name = Aislamiento del Núcleo de Reglas
+type = forbidden
+source_modules =
+    app.core.rule_engine
+forbidden_modules =
+    fastapi
+    redis
+    sqlalchemy
+    app.infrastructure.persistence
+    app.api
+
+[importlinter:contract:2]
+name = Independencia del Orquestador
+type = forbidden
+source_modules =
+    app.core.orchestrator
+forbidden_modules =
+    app.core.rule_engine.regla_clasica
+    app.core.rule_engine.regla_apuntado
