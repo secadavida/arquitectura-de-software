@@ -17,3 +17,4 @@ data/
 reports/
 .vscode/
 .idea/
+.import_linter_cache/
