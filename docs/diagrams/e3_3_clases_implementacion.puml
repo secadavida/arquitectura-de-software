@@ -1,0 +1,218 @@
+@startuml E3_Clases_Implementacion
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+title Diagrama de Clases de Implementación — Apuntado Digital (Monolito modular + Strategy)
+
+package "app.core.deck_card" {
+  enum Suit {
+    OROS
+    COPAS
+    ESPADAS
+    BASTOS
+  }
+  class Card <<dataclass frozen>> {
+    + rank: int
+    + suit: Suit
+    + copy: int
+    + points(): int
+    + ordinal(): int
+    + code(): str
+    + {static} from_code(code: str): Card
+  }
+  class Deck {
+    - _cards: list[Card]
+    + {static} shuffled(copies: int, rng: Random): Deck
+    + draw(): Card
+    + refill(cards: list[Card], rng: Random): None
+  }
+  class DiscardPile {
+    - _cards: list[Card]
+    + push(card: Card): None
+    + top(): Card | None
+    + take_top(): Card
+    + take_all_but_top(): list[Card]
+  }
+}
+
+package "app.core.rule_engine" {
+  class "hand_evaluator\n<<HandEvaluatorComponent>>" as HE <<module>> {
+    + classify(cards): Meld | None
+    + candidate_melds(cards, sizes: set[int]): list[tuple[int, Meld]]
+    - _disjoint_selections(candidates, sizes, used: int, start: int): Iterator
+    + best_arrangement(cards, plan: tuple[int, ...]): Arrangement | None
+    + best_of_plans(cards, plans): Arrangement | None
+    + best_partial(cards): Arrangement
+  }
+  class Meld <<dataclass frozen>> {
+    + kind: MeldKind
+    + cards: tuple[Card, ...]
+  }
+  class Arrangement <<dataclass frozen>> {
+    + melds: tuple[Meld, ...]
+    + leftovers: tuple[Card, ...]
+    + leftover_points(): int
+  }
+  class ResultadoValidacion <<dataclass frozen>> {
+    + es_valida: bool
+    + causa: str
+    + puntos_sobrantes: int
+    + organizacion: Arrangement | None
+  }
+  class VictoryResult <<dataclass frozen>> {
+    + ganadores: list[str]
+    + perdedores: list[str]
+  }
+  abstract class IRuleEvaluator <<interface / ReglaJuego>> {
+    + mode_id: str
+    + nombre: str
+    + acumula_puntos: bool
+    + umbral_derrota: int | None
+    + {abstract} validar_cierre(mano: Sequence[Card]): ResultadoValidacion
+    + {abstract} calcular_penalizacion(mano: Sequence[Card]): int
+    + {abstract} es_fin_de_partida(acumulados: dict[str, int], cerrador: str): VictoryResult | None
+    + {abstract} sugerir(mano: Sequence[Card]): Arrangement
+  }
+  class ReglaClasicaStrategy {
+    + mode_id = "CLASICA"
+    + acumula_puntos = False
+  }
+  class ReglaApuntadoStrategy {
+    + mode_id = "APUNTADO"
+    + acumula_puntos = True
+    + umbral_derrota = 101
+  }
+  class GameModeRegistry {
+    - _modalidades: dict[str, IRuleEvaluator]
+    + registrar(regla: IRuleEvaluator): GameModeRegistry
+    + obtener(mode_id: str): IRuleEvaluator
+    + modalidades(): list[IRuleEvaluator]
+  }
+  class RoundScoring <<RoundScoringComponent>> {
+    + liquidar(regla, manos: dict[str, Sequence[Card]], acumulados: dict[str, int], cerrador: str): ResultadoRonda
+  }
+  class ResultadoRonda <<dataclass frozen>> {
+    + penalizaciones: dict[str, int]
+    + acumulados: dict[str, int]
+    + victoria: VictoryResult | None
+    + fin_de_partida(): bool
+  }
+}
+
+package "app.core.game_session" {
+  class GameState {
+    + id: str
+    + mode_id: str
+    + room_pin: str
+    + players: list[PlayerState]
+    + deck: Deck
+    + pile: DiscardPile
+    + round_number: int
+    + turn_index: int
+    + phase: Phase
+    + status: GameStatus
+    + version: int
+    + turn_seconds: int
+    + turn_deadline: float | None
+    + {static} create(mode_id, names, turn_seconds, now, seed): GameState
+    + start_round(now: float): None
+    + draw(player_id: str, source: DrawSource): Card
+    + discard(player_id: str, code: str, now: float): Card
+    + hand_after_discard(player_id: str, code: str): list[Card]
+    + apply_close(player_id: str, code: str): Card
+    + apply_settlement(closer_id, penalties, totals): None
+    + turn_expired(now: float): bool
+    + finish(winner_ids, loser_ids): None
+  }
+  class PlayerState <<dataclass>> {
+    + id: str
+    + name: str
+    + hand: list[Card]
+    + score: int
+  }
+  interface GameStateStore <<Protocol / Redis>> {
+    + load(game_id): dict | None
+    + save(game_id, snapshot): None
+    + lock(game_id): ContextManager
+    + append_play(game_id, play): None
+    + pending_plays(game_id): list[dict]
+    + clear_plays(game_id, count): None
+  }
+  interface HistoryStore <<Protocol / PostgreSQL>> {
+    + create_session(snapshot, plays): None
+    + settle_round(game_id, round_number, closer_seat, penalties, totals, plays, snapshot, next_round): None
+    + latest_snapshot(game_id): dict | None
+    + find_by_pin(pin): str | None
+  }
+  interface Notifier <<Protocol>> {
+    + publish(game_id: str, event: str, version: int): None
+  }
+  class GameSessionComponent <<mediador del ciclo de vida>> {
+    + crear_partida(mode_id, nombres, turn_seconds, seed): GameState
+    + cargar(game_id): GameState
+    + guardar(state, evento, player_id, datos): None
+    + registrar(state, evento, player_id, datos): None
+    + cerrar_ronda(state, cerrador, datos): ResultadoRonda
+    + vista(game_id, player_id): dict
+  }
+}
+
+package "app.core.orchestrator" {
+  class TurnOrchestratorComponent <<mediador de turnos>> {
+    - _session: GameSessionComponent
+    + crear_partida(mode_id, nombres, turn_seconds, seed): dict
+    + robar(game_id, player_id, origen, version): dict
+    + descartar(game_id, player_id, carta, version): dict
+    + declarar_cierre(game_id, player_id, carta, version): dict
+    + expirar_turnos(): int
+    - _comando(game_id, version): ContextManager[GameState]
+  }
+}
+
+package "app.infrastructure.persistence" {
+  class RedisGameStateStore
+  class InMemoryGameStateStore
+  class PostgresHistoryStore
+}
+
+package "app.api" {
+  class SessionNotificationComponent <<WebSocket Gateway>> {
+    + connect(game_id, websocket): None
+    + publish(game_id, event, version): None
+  }
+  class "http_router()" as router <<FastAPI>>
+}
+
+Card --> Suit
+Meld o-- "3..4" Card
+Arrangement o-- "*" Meld
+HE ..> Arrangement : produce
+ResultadoValidacion --> "0..1" Arrangement
+IRuleEvaluator ..> ResultadoValidacion : produce
+IRuleEvaluator ..> VictoryResult : produce
+IRuleEvaluator ..> HE : usa
+IRuleEvaluator <|-- ReglaClasicaStrategy
+IRuleEvaluator <|-- ReglaApuntadoStrategy
+GameModeRegistry o-- "*" IRuleEvaluator
+RoundScoring ..> IRuleEvaluator
+RoundScoring ..> ResultadoRonda : produce
+
+GameState *-- "2..4" PlayerState
+GameState *-- Deck
+GameState *-- DiscardPile
+PlayerState o-- "*" Card
+GameSessionComponent --> GameModeRegistry
+GameSessionComponent --> RoundScoring
+GameSessionComponent --> GameStateStore
+GameSessionComponent --> HistoryStore
+GameSessionComponent --> Notifier
+GameSessionComponent ..> GameState
+TurnOrchestratorComponent --> GameSessionComponent
+
+GameStateStore <|.. RedisGameStateStore
+GameStateStore <|.. InMemoryGameStateStore
+HistoryStore <|.. PostgresHistoryStore
+Notifier <|.. SessionNotificationComponent
+router --> TurnOrchestratorComponent
+@enduml

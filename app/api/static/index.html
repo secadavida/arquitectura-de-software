@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Apuntado Digital</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="./" class="brand">Apuntado Digital</a>
+    <span id="latency" class="muted" title="Tiempo de respuesta de la última acción (promedio)">Latencia: —</span>
+  </header>
+
+  <!-- ===================== LOBBY ===================== -->
+  <main id="lobby" class="hidden">
+    <section class="panel">
+      <h1>Nueva partida</h1>
+      <form id="create-form">
+        <fieldset>
+          <legend>Modalidad</legend>
+          <div id="modes"></div>
+        </fieldset>
+        <fieldset>
+          <legend>Jugadores (2 a 4)</legend>
+          <div id="player-inputs">
+            <input name="player" placeholder="Jugador 1" required maxlength="24">
+            <input name="player" placeholder="Jugador 2" required maxlength="24">
+            <input name="player" placeholder="Jugador 3 (opcional)" maxlength="24">
+            <input name="player" placeholder="Jugador 4 (opcional)" maxlength="24">
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Temporizador por turno</legend>
+          <label><input type="number" name="turn_seconds" value="60" min="0" max="600" step="5"> segundos (0 = sin límite)</label>
+        </fieldset>
+        <button type="submit" class="primary">Crear partida</button>
+      </form>
+      <div id="created" class="hidden">
+        <h2>Partida creada</h2>
+        <p>PIN de la sala: <b id="created-pin" class="pin"></b></p>
+        <p class="muted">Cada jugador abre su enlace (en su propio dispositivo de la misma red, o en otra pestaña), o entra con el PIN.</p>
+        <ul id="player-links" class="links"></ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Unirse con PIN</h2>
+      <form id="join-form" class="inline">
+        <input name="pin" placeholder="PIN de 6 dígitos" inputmode="numeric" maxlength="6" required>
+        <button type="submit">Buscar sala</button>
+      </form>
+      <ul id="join-links" class="links"></ul>
+    </section>
+    <section class="panel">
+      <h2>Cómo se juega</h2>
+      <ul class="rules">
+        <li>Cada jugador recibe <b>11 cartas</b> de la baraja española (40 cartas; 2 barajas con 4 jugadores).</li>
+        <li>En tu turno <b>robas</b> del mazo o del pozo y luego <b>descartas</b> una carta.</li>
+        <li><b>Terna/cuarta</b>: 3 o 4 cartas del mismo número y distinto palo, o escalera del mismo palo (… 6, 7, Sota, Caballo, Rey).</li>
+        <li><b>Clásica (4-3-3)</b>: cierras descartando y quedándote con 1 cuarta + 2 ternas + 1 carta. Gana el primero que cierre.</li>
+        <li><b>Apuntado (101)</b>: cierras con 3 ternas y sobrantes que sumen <b>menos de 5</b>. Los demás suman sus sobrantes (figuras = 10). Quien llegue a 101 pierde.</li>
+      </ul>
+    </section>
+  </main>
+
+  <!-- ===================== PARTIDA ===================== -->
+  <main id="game" class="hidden">
+    <section class="panel status">
+      <div>
+        <h1 id="mode-name"></h1>
+        <p id="mode-desc" class="muted"></p>
+      </div>
+      <div class="status-right">
+        <span id="round-label" class="badge"></span>
+        <span id="pin-label" class="badge"></span>
+        <span id="timer-label" class="badge hidden"></span>
+        <label class="muted">Ver como
+          <select id="player-switch"></select>
+        </label>
+      </div>
+    </section>
+
+    <div id="message" class="message" role="status" aria-live="polite"></div>
+
+    <section class="panel">
+      <table class="scores">
+        <thead><tr><th>Jugador</th><th>Cartas</th><th id="score-head">Puntos</th></tr></thead>
+        <tbody id="scores"></tbody>
+      </table>
+    </section>
+
+    <section class="panel table-area">
+      <button id="deck" class="pile-btn" title="Robar del mazo">
+        <span class="card back"></span>
+        <span>Mazo (<span id="deck-count">0</span>)</span>
+      </button>
+      <button id="pile" class="pile-btn" title="Robar del pozo">
+        <span id="pile-top" class="card empty"></span>
+        <span>Pozo (<span id="pile-count">0</span>)</span>
+      </button>
+    </section>
+
+    <section class="panel">
+      <div class="hand-header">
+        <h2>Tu mano <span id="hand-count" class="muted"></span></h2>
+        <div class="hand-tools">
+          <label><input type="checkbox" id="hint-toggle" checked> Resaltar combinaciones</label>
+          <button id="sort-rank" type="button">Ordenar por número</button>
+          <button id="sort-suit" type="button">Ordenar por palo</button>
+        </div>
+      </div>
+      <div id="hand" class="hand"></div>
+      <p id="hint-text" class="muted"></p>
+      <div class="actions">
+        <button id="discard" class="primary" disabled>Descartar seleccionada</button>
+        <button id="close" class="accent" disabled>Cerrar ronda descartando la seleccionada</button>
+      </div>
+    </section>
+
+    <section id="round-result" class="panel hidden"></section>
+
+    <section class="panel">
+      <details>
+        <summary>Registro de auditoría de la partida</summary>
+        <ol id="events" class="events"></ol>
+      </details>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

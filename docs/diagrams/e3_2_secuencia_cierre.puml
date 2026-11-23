@@ -1,0 +1,98 @@
+@startuml E3_Secuencia_Cierre
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber
+title Secuencia — Intento de cierre de ronda y liquidación de puntos
+
+actor "Jugador" as J
+participant "UI Web\n(app.js)" as UI
+participant "API\nPOST /api/games/{id}/close" as API
+participant "TurnOrchestrator\nComponent" as TO
+participant "GameSession\nComponent" as GS
+participant "GameModeRegistry" as REG
+participant "IRuleEvaluator\n<<Strategy>>" as RE
+participant "RoundScoring" as RS
+database "Redis\n(RedisGameStateStore)" as R
+database "PostgreSQL\n(PostgresHistoryStore)" as PG
+participant "WebSocket Gateway\n(SessionNotification)" as WS
+
+J -> UI : selecciona carta y pulsa "Cerrar ronda"
+UI -> API : {player, card, version}
+API -> TO : declarar_cierre(game_id, player, card, version)
+activate TO
+TO -> R : SET game:{id}:lock NX PX 5000
+alt cerrojo tomado por otra acción
+  R --> TO : nil
+  TO --> API : ConcurrencyError
+  API --> UI : 423 reintentar
+end
+TO -> GS : cargar(game_id)
+GS -> R : GET game:{id}:state
+R --> GS : snapshot (o nulo -> reanudar desde PostgreSQL, R4)
+GS --> TO : GameState
+alt version != state.version (R2)
+  TO --> API : StaleStateError
+  API --> UI : 409 + current_version (la UI recarga el estado)
+end
+TO -> GS : regla_de(state)
+GS -> REG : obtener(mode_id)
+REG --> TO : regla : IRuleEvaluator
+TO -> RE : validar_cierre(mano sin el descarte)
+activate RE
+RE -> RE : HandEvaluator: candidate_melds +\n_disjoint_selections (búsqueda exacta)
+
+alt Escenario 1 — Modalidad Clásica (ReglaClasicaStrategy)
+  RE -> RE : best_arrangement(mano, (4,3,3))
+  RE --> TO : ResultadoValidacion(es_valida=True)\n1 cuarta + 2 ternas + 1 sobrante
+  TO -> GS : cerrar_ronda(state, cerrador)
+  activate GS
+  GS -> RS : liquidar(regla, manos, acumulados, cerrador)
+  RS -> RE : calcular_penalizacion(mano) por rival (informativo)
+  RS -> RE : es_fin_de_partida(acumulados, cerrador)
+  RE --> RS : VictoryResult(ganadores=[cerrador])
+  RS --> GS : ResultadoRonda(fin_de_partida=True)
+  GS -> GS : state.finish() — ronda ganada
+  GS -> PG : BEGIN; SELECT round FOR UPDATE (OPEN?)\nUPDATE round CLOSED; INSERT scores; UPDATE player_sessions\nUPDATE game_session FINISHED; INSERT plays (Outbox); INSERT snapshot; COMMIT
+  GS -> R : LTRIM plays; SET state; SREM games:active
+  GS -> WS : publish(GameFinished)
+  deactivate GS
+else Escenario 2 — Modalidad Apuntado (ReglaApuntadoStrategy)
+  RE -> RE : best_of_plans(mano, [(3,3,3),(4,3,3),(4,4,3)])
+  RE --> TO : ResultadoValidacion(es_valida=True)\n3 ternas y sobrantes < 5 pts
+  TO -> GS : cerrar_ronda(state, cerrador)
+  activate GS
+  GS -> RS : liquidar(regla, manos, acumulados, cerrador)
+  loop por cada jugador != cerrador
+    RS -> RE : calcular_penalizacion(mano)
+    RE --> RS : puntos sobrantes (mejor organización)
+  end
+  RS -> RS : acumulados += penalizaciones
+  RS -> RE : es_fin_de_partida(acumulados, cerrador)
+  alt algún jugador >= 101
+    RE --> RS : VictoryResult(ganadores = menor acumulado, perdedores >= 101)
+    GS -> GS : state.finish()
+  else nadie llega a 101
+    RE --> RS : None
+    GS -> GS : state.start_round() (reparte 11 cartas)
+  end
+  GS -> PG : BEGIN; SELECT round FOR UPDATE; UPDATE round CLOSED;\nINSERT scores; UPDATE player_sessions.accumulated_score;\nINSERT round siguiente OPEN | UPDATE game_session FINISHED;\nINSERT plays (Outbox); INSERT game_snapshot; COMMIT
+  note right of PG : Una única transacción ACID (R1).\nSi la ronda ya no está OPEN -> ConcurrencyError (R6).\nSi falla -> ROLLBACK y Redis no se modifica.
+  GS -> R : LTRIM plays; SET state
+  GS -> WS : publish(RoundClosed | GameFinished)
+  deactivate GS
+end
+
+alt cierre inválido (cualquier modalidad)
+  RE --> TO : ResultadoValidacion(es_valida=False, causa)
+  TO -> GS : registrar("cierre_intentado", valido=False)
+  GS -> R : RPUSH game:{id}:plays
+end
+deactivate RE
+TO -> R : liberar cerrojo (WATCH/MULTI DEL si el token coincide)
+TO --> API : {valid, cause, leftover_points, state}
+deactivate TO
+API --> UI : 200 OK
+WS -->> UI : {"type": "RoundClosed", "version": n} (a todos los jugadores)
+UI --> J : resultado de la ronda, o causa del rechazo\n(si es inválido el turno continúa)
+@enduml

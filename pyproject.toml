@@ -1,22 +1,31 @@
 [project]
 name = "apuntado-digital"
-version = "0.1.0"
+version = "1.0.0"
+description = "Juego de cartas Apuntado - versión digital (Clásica 4-3-3 y Apuntado a 101). Fundamentos de Arquitectura de Software, UNAL."
 requires-python = ">=3.10"
 dependencies = [
     "fastapi",
-    "uvicorn",
+    "uvicorn[standard]",
     "websockets",
     "redis",
     "sqlalchemy",
     "psycopg2-binary",
-    "pydantic"
+    "pydantic",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = "."
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.ruff]
-line-length = 88
+line-length = 125
+extend-exclude = [".venv"]
 
-[tool.ruff.mccabe]
+[tool.ruff.lint]
+select = ["E", "F", "C901"]
+
+[tool.ruff.lint.mccabe]
+# Fitness function del E2 (5.3): complejidad ciclomática máxima 10.
 max-complexity = 10

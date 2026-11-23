@@ -1,0 +1,89 @@
+@startuml UML_Clases_Persistencia_Implementado
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam classAttributeIconSize 0
+title Modelo relacional implementado (PostgreSQL 3FN) — app/infrastructure/models
+
+package "PostgreSQL" {
+    class User <<Entity users>> {
+        +id: UUID [PK]
+        +username: String
+        +email: String?
+        +password_hash: String?
+        +is_guest: boolean
+        +created_at: DateTime
+    }
+    class Wallet <<Entity wallets>> {
+        +id: UUID [PK]
+        +user_id: UUID [FK, UQ]
+        +balance: Decimal
+    }
+    class Room <<Entity rooms>> {
+        +id: UUID [PK]
+        +pin_code: String(6)
+        +host_id: UUID [FK]
+        +status: RoomStatus
+        +max_players: int
+        +turn_seconds: int
+    }
+    class GameSession <<Entity game_sessions>> {
+        +id: UUID [PK]
+        +room_id: UUID [FK]
+        +modality: GameMode
+        +status: String
+        +started_at: DateTime
+        +ended_at: DateTime?
+    }
+    class PlayerSession <<Entity player_sessions>> {
+        +id: UUID [PK]
+        +session_id: UUID [FK]
+        +user_id: UUID [FK]
+        +seat: String  <<nuevo>>
+        +accumulated_score: int
+        +is_connected: boolean
+    }
+    class Round <<Entity rounds>> {
+        +id: UUID [PK]
+        +session_id: UUID [FK]
+        +round_number: int
+        +winner_id: UUID [FK player_sessions]
+        +status: OPEN | CLOSED
+    }
+    class Score <<Entity scores>> {
+        +id: UUID [PK]
+        +round_id: UUID [FK]
+        +player_session_id: UUID [FK]
+        +points: int
+        +accumulated_after: int
+    }
+    class Play <<Entity plays>> {
+        +id: UUID [PK]
+        +round_id: UUID [FK]
+        +player_id: UUID [FK player_sessions]
+        +action_type: String
+        +card_played: String?
+        +payload: JSON  <<nuevo>>
+        +timestamp: DateTime
+    }
+    class GameSnapshot <<Entity game_snapshots>> {
+        +id: UUID [PK]
+        +session_id: UUID [FK]
+        +round_number: int
+        +version: int
+        +state: JSON
+        +created_at: DateTime
+    }
+}
+
+User "1" *-- "1" Wallet
+User "1" -- "0..*" Room : Host
+Room "1" *-- "1..*" GameSession
+User "1" -- "0..*" PlayerSession
+GameSession "1" *-- "2..4" PlayerSession
+GameSession "1" *-- "1..*" Round
+GameSession "1" *-- "1..*" GameSnapshot
+Round "1" *-- "0..*" Score
+Round "1" *-- "0..*" Play
+PlayerSession "1" -- "0..*" Play : ejecuta
+PlayerSession "1" -- "0..*" Score
+@enduml

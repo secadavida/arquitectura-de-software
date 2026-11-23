@@ -1,0 +1,99 @@
+name: CI - Fitness Functions
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  fitness-functions:
+    name: Fitness Functions (gobernanza arquitectónica)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: "Import-Linter: contratos 1-6 (.importlinter)"
+        run: lint-imports
+      - name: "Ruff C901: complejidad ciclomática <= 10"
+        run: ruff check app --select C901
+      - name: "Pruebas de arquitectura (tests/architecture): aislamiento, ciclos, CC, secuencia principal"
+        run: pytest tests/architecture -v
+      - name: Reporte de métricas (Radon + Ca/Ce/I/A/D)
+        if: always()
+        run: |
+          mkdir -p reports
+          python -m scripts.metrics_report reports/metricas.md > /dev/null
+          radon cc app -s -a > reports/radon_cc.txt
+          radon mi app -s > reports/radon_mi.txt
+          lint-imports > reports/import_linter.txt || true
+          cat reports/metricas.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reporte-metricas
+          path: reports/
+
+  unit-tests:
+    name: Pruebas unitarias (reglas, casos borde, orquestador)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: pytest tests/unit -v
+
+  integration-tests:
+    name: Integración con Redis 7 y PostgreSQL 16 reales
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: apuntado
+          POSTGRES_PASSWORD: apuntado
+          POSTGRES_DB: apuntado
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U apuntado" --health-interval 5s --health-retries 10
+    env:
+      REDIS_URL: redis://localhost:6379/0
+      DATABASE_URL: postgresql+psycopg2://apuntado:apuntado@localhost:5432/apuntado
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: pytest tests/integration -v
+
+  docker-compose:
+    name: Build y smoke test con docker compose (app + Redis + PostgreSQL)
+    runs-on: ubuntu-latest
+    needs: [fitness-functions, unit-tests, integration-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up -d --build --wait
+      - name: Smoke test
+        run: |
+          curl -fs http://127.0.0.1:8000/health
+          curl -fs http://127.0.0.1:8000/api/modes
+          curl -fs -X POST http://127.0.0.1:8000/api/games -H 'Content-Type: application/json' \
+            -d '{"mode":"APUNTADO","players":["Ana","Beto"]}'
+          docker compose exec -T postgres psql -U apuntado -c "select count(*) from game_sessions;"
+          docker compose exec -T redis redis-cli scard games:active
+      - if: always()
+        run: docker compose logs app
+      - if: always()
+        run: docker compose down -v

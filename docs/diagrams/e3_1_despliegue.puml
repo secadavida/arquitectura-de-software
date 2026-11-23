@@ -1,0 +1,54 @@
+@startuml E3_Despliegue
+skinparam shadowing false
+skinparam defaultFontName Arial
+title Diagrama UML de Despliegue — Apuntado Digital (MVP)
+
+node "Dispositivo del Jugador\n(PC / portátil / móvil)" as device <<device>> {
+  node "Navegador Web" as browser <<executionEnvironment>> {
+    artifact "index.html · app.js · styles.css" as bundle <<bundle JS/HTML>>
+  }
+}
+
+node "Servidor (host Docker en LAN)" as host <<device>> {
+  node "Docker Engine + docker compose" as docker <<executionEnvironment>> {
+    node "Contenedor app\napuntado-digital:1.0.0\n(python:3.12-slim)" as appc <<container>> {
+      node "Uvicorn (ASGI) :8000" as uvicorn <<executionEnvironment>> {
+        artifact "paquete app" as pkg {
+          component "app.api\n(REST + WebSocket Gateway\n+ StaticFiles)" as api
+          component "app.core.orchestrator\n(TurnOrchestratorComponent)" as orch
+          component "app.core.game_session\n(GameSessionComponent)" as gs
+          component "app.core.rule_engine\n(IRuleEvaluator, estrategias,\nHandEvaluator, RoundScoring)" as re
+          component "app.core.deck_card" as dc
+          component "app.infrastructure\n(RedisGameStateStore,\nPostgresHistoryStore)" as infra
+        }
+      }
+    }
+    node "Contenedor redis\nredis:7-alpine :6379" as redisc <<container>> {
+      database "Estado vivo\ngame:{id}:state\ngame:{id}:plays (Outbox)\ngame:{id}:lock" as redis
+    }
+    node "Contenedor postgres\npostgres:16-alpine :5432" as pgc <<container>> {
+      database "PostgreSQL 3FN\nusers, wallets, rooms,\ngame_sessions, player_sessions,\nrounds, scores, plays,\ngame_snapshots" as pg
+    }
+    storage "volumen redis-data" as v1
+    storage "volumen pg-data" as v2
+  }
+}
+
+cloud "GitHub" {
+  node "GitHub Actions\n(ubuntu-latest)" as gha <<executionEnvironment>> {
+    artifact "ci.yml: lint-imports, ruff C901,\npytest, servicios Redis/PostgreSQL,\ndocker compose" as ci
+  }
+}
+
+browser -- uvicorn : HTTP/1.1 REST + JSON\n/api/games/* :8000
+browser -- uvicorn : WebSocket\n/ws/games/{id}
+api ..> orch : en proceso
+orch ..> gs
+gs ..> re
+re ..> dc
+infra -- redis : RESP/TCP 6379\n(SET NX PX, RPUSH, GET/SET)
+infra -- pg : SQL/TCP 5432\n(psycopg2 + SQLAlchemy)
+redis .. v1
+pg .. v2
+ci ..> appc : construye y prueba
+@enduml

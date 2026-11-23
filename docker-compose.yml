@@ -1,0 +1,46 @@
+# Topología del ADR-04: app (FastAPI) + Redis (estado vivo) + PostgreSQL (historial 3FN).
+services:
+  app:
+    build: .
+    image: apuntado-digital:1.0.0
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg2://apuntado:apuntado@postgres:5432/apuntado
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: apuntado
+      POSTGRES_PASSWORD: apuntado
+      POSTGRES_DB: apuntado
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apuntado"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  redis-data:
+  pg-data:

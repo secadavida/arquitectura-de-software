@@ -1,8 +1,12 @@
+# Fitness functions de dependencias (E2, sección 5). Ejecutar: lint-imports
+# Contratos 1 a 3: los definidos en el Entregable 2 (corregida la ruta de las
+# estrategias a app.core.rule_engine.*). Contratos 4 a 6: añadidos en el E3.
 [importlinter]
 root_package = app
+include_external_packages = True
 
 [importlinter:contract:1]
-name = Aislamiento del Núcleo de Reglas
+name = 1. Aislamiento del Nucleo de Reglas (rule_engine sin frameworks, persistencia ni API)
 type = forbidden
 source_modules =
     app.core.rule_engine
@@ -10,14 +14,60 @@ forbidden_modules =
     fastapi
     redis
     sqlalchemy
-    app.infrastructure.persistence
+    app.infrastructure
     app.api
+    app.core.orchestrator
+    app.core.game_session
 
 [importlinter:contract:2]
-name = Independencia del Orquestador
+name = 2. Independencia del Orquestador (solo depende de IRuleEvaluator)
 type = forbidden
 source_modules =
     app.core.orchestrator
+    app.core.game_session
 forbidden_modules =
+    app.core.rule_engine.regla_clasica
+    app.core.rule_engine.regla_apuntado
+
+[importlinter:contract:3]
+name = 3. Capas del game_engine sin dependencias circulares (api > orchestrator > game_session > rule_engine > deck_card)
+type = layers
+layers =
+    app.api
+    app.core.orchestrator
+    app.core.game_session
+    app.core.rule_engine
+    app.core.deck_card
+
+[importlinter:contract:4]
+name = 4. Estrategias de reglas independientes entre si (sin acoplamiento cruzado)
+type = independence
+modules =
+    app.core.rule_engine.regla_clasica
+    app.core.rule_engine.regla_apuntado
+
+[importlinter:contract:5]
+name = 5. Nucleo (game_engine) sin infraestructura ni frameworks
+type = forbidden
+source_modules =
+    app.core
+forbidden_modules =
+    fastapi
+    redis
+    sqlalchemy
+    psycopg2
+    app.infrastructure
+    app.api
+
+[importlinter:contract:6]
+name = 6. Capa de entrada aislada del almacenamiento (api no toca la BD ni Redis)
+type = forbidden
+source_modules =
+    app.api
+forbidden_modules =
+    app.infrastructure
+    sqlalchemy
+    redis
+    psycopg2
     app.core.rule_engine.regla_clasica
     app.core.rule_engine.regla_apuntado

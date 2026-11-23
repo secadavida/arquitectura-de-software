@@ -10,3 +10,10 @@ ENV/
 .ruff_cache/
 *.sqlite3
 .DS_Store
+data/
+*.db
+*.db-wal
+*.db-shm
+reports/
+.vscode/
+.idea/
